@@ -288,6 +288,7 @@
   }
 
   /* ---------- app state ---------- */
+  var IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   var app = document.getElementById('app');
   var fileInput = document.getElementById('file');
 
@@ -839,11 +840,33 @@
 
     var card;
     if (cur) {
-      var link = 'https://wa.me/' + cur.phone + '?text=' + encodeURIComponent(cur.msg);
+      var txt = encodeURIComponent(cur.msg);
+      /* Phone: wa.me opens the WhatsApp app. PC: whatsapp:// opens WhatsApp Desktop directly
+         (no browser page, no extra tabs). */
+      var link = IS_MOBILE ? 'https://wa.me/' + cur.phone + '?text=' + txt : 'whatsapp://send?phone=' + cur.phone + '&text=' + txt;
+      var webLink = 'https://web.whatsapp.com/send?phone=' + cur.phone + '&text=' + txt;
+      var onOpen = function () {
+        S.opened = { id: cur.id, hidden: false };
+        if (!IS_MOBILE && db.autoMark) {
+          /* On a PC the browser stays in view, so there is no "coming back" to detect:
+             mark as sent as soon as WhatsApp is opened. */
+          var it = cur;
+          setTimeout(function () {
+            if (it.status === 'pending') {
+              setStatus(it, 'sent'); S.opened = null;
+              toast('Marked ' + (it.name || fmtPhone(it.phone)) + ' as sent');
+              if (S.view === 'sending') render();
+            }
+          }, 600);
+        }
+      };
       var openA = h('a', {
-        class: 'btn big', href: link, target: '_blank', rel: 'noopener',
-        onclick: function () { S.opened = { id: cur.id, hidden: false }; }
+        class: 'btn big', href: link, target: IS_MOBILE ? '_blank' : null, rel: IS_MOBILE ? 'noopener' : null,
+        onclick: onOpen
       }, icon('chat', 22), 'Open WhatsApp and send');
+      var webA = IS_MOBILE ? null : h('a', {
+        class: 'btn text', href: webLink, target: 'wa_web', style: 'align-self:center; height:36px; font-size:13px', onclick: onOpen
+      }, 'App not opening? Use WhatsApp Web');
       card = h('div', { class: 'nextcard' },
         h('div', { class: 'label' }, 'Next up'),
         h('div', { style: 'display:flex; align-items:center; gap:12px' },
@@ -852,7 +875,7 @@
             h('div', { style: 'font-size:18px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap' }, cur.name || fmtPhone(cur.phone)),
             h('div', { class: 'small muted' }, fmtPhone(cur.phone)))),
         h('div', { class: 'msgbox' }, cur.msg),
-        openA,
+        openA, webA,
         h('div', { class: 'two' },
           h('button', { type: 'button', class: 'btn ghost', onclick: function () { setStatus(cur, 'skipped'); S.opened = null; render(); } }, 'Skip'),
           h('button', { type: 'button', class: 'btn ghost', onclick: function () { setStatus(cur, 'sent'); S.opened = null; render(); } }, 'Mark as sent')));
@@ -883,7 +906,7 @@
       h('div', { class: 'label', style: 'padding:16px 20px 8px' }, 'Queue ', h('span', { style: 'text-transform:none; letter-spacing:0; font-weight:500' }, '(tap a done row to undo)')),
       queue,
       h('div', { class: 'footer', style: 'padding-top:10px' },
-        h('label', { for: 'auto', style: 'display:flex; align-items:center; gap:10px; font-size:13px; line-height:18px; color:var(--muted)' }, auto, 'Mark as sent when I come back from WhatsApp'),
+        h('label', { for: 'auto', style: 'display:flex; align-items:center; gap:10px; font-size:13px; line-height:18px; color:var(--muted)' }, auto, IS_MOBILE ? 'Mark as sent when I come back from WhatsApp' : 'Mark as sent when I tap Open'),
         h('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:12px' },
           h('div', { class: 'small muted' }, 'Progress is saved. Close anytime and continue later.'),
           h('button', { type: 'button', class: 'btn ghost small', onclick: function () { go('home'); } }, 'Pause'))));
