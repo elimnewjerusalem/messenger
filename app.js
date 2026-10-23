@@ -24,12 +24,13 @@
           r.templates = Array.isArray(r.templates) && r.templates.length ? r.templates : DEFAULT_TEMPLATES.slice();
           if (typeof r.autoMark !== 'boolean') r.autoMark = true;
           if (typeof r.pcWeb !== 'boolean') r.pcWeb = false;
+          if (!r.links) r.links = { website: 'https://elimnewjerusalem.github.io/church', youtube: '' };
           if (!r.campaign) r.campaign = null;
           return r;
         }
       }
     } catch (e) { /* private mode or bad JSON: start fresh */ }
-    return { contacts: [], templates: DEFAULT_TEMPLATES.slice(), campaign: null, autoMark: true, pcWeb: false };
+    return { contacts: [], templates: DEFAULT_TEMPLATES.slice(), campaign: null, autoMark: true, pcWeb: false, links: { website: 'https://elimnewjerusalem.github.io/church', youtube: '' } };
   }
 
   var saveWarned = false;
@@ -182,7 +183,10 @@
   }
 
   function fillTemplate(t, c) {
+    var links = db.links || {};
     return String(t)
+      .replace(/\{website\}/gi, links.website || '')
+      .replace(/\{youtube\}/gi, links.youtube || '')
       .replace(/\{name\}/gi, c.name || '')
       .replace(/\{group\}/gi, (c.groups || []).join(', '))
       .replace(/\{area\}/gi, c.area || '')
@@ -434,10 +438,13 @@
       sec.appendChild(h('div', { class: 'label green' }, 'Today'));
       if (b.today.length) b.today.slice(0, 20).forEach(function (c) { sec.appendChild(birthdayRow(c, '', true)); });
       else sec.appendChild(h('div', { class: 'empty' }, 'No birthdays today'));
-      if (b.week.length) {
-        sec.appendChild(h('div', { class: 'label', style: 'margin-top:6px' }, 'This week'));
-        b.week.slice(0, 20).forEach(function (x) { sec.appendChild(birthdayRow(x.c, x.day, false)); });
-      }
+      sec.appendChild(h('div', { class: 'label', style: 'margin-top:6px' }, 'This week'));
+      if (b.week.length) b.week.slice(0, 20).forEach(function (x) { sec.appendChild(birthdayRow(x.c, x.day, false)); });
+      else sec.appendChild(h('div', { class: 'empty' }, 'No birthdays in the next 7 days'));
+      var withB = db.contacts.filter(function (c) { return c.valid && c.birthday; }).length;
+      sec.appendChild(h('div', { class: 'small muted' }, withB
+        ? withB + ' of ' + db.contacts.length + ' contacts have a birthday saved.'
+        : 'No birthdays found in your file. Add a Birthday column (like 15-03) and import again.'));
     }
     body.appendChild(sec);
 
@@ -747,7 +754,18 @@
         }, t.name));
       });
     }
+    function askLink(key, label) {
+      var cur = (db.links && db.links[key]) || '';
+      var v = window.prompt(label + ' link (starts with https://)', cur);
+      if (v == null) return;
+      v = v.trim();
+      if (v && !/^https?:\/\//i.test(v)) { toast('Link must start with https://'); return; }
+      db.links = db.links || {}; db.links[key] = v; save(); paintPreview();
+    }
+    function editLinks() { askLink('website', 'Website'); askLink('youtube', 'YouTube channel'); }
     function insert(tok) {
+      if (tok === '{website}' && !(db.links && db.links.website)) askLink('website', 'Website');
+      if (tok === '{youtube}' && !(db.links && db.links.youtube)) askLink('youtube', 'YouTube channel');
       var s = ta.selectionStart == null ? ta.value.length : ta.selectionStart, e = ta.selectionEnd == null ? s : ta.selectionEnd;
       ta.value = ta.value.slice(0, s) + tok + ta.value.slice(e);
       ta.focus(); ta.selectionStart = ta.selectionEnd = s + tok.length;
@@ -790,8 +808,10 @@
           h('label', { class: 'label', for: 'msg' }, 'Message'), ta,
           h('div', { style: 'display:flex; gap:8px; align-items:center; flex-wrap:wrap' },
             h('span', { class: 'small muted' }, 'Insert'),
-            ['{name}', '{group}', '{area}'].map(function (tk) { return h('button', { type: 'button', class: 'token', onclick: function () { insert(tk); } }, tk); }),
-            delBtn)),
+            ['{name}', '{group}', '{area}', '{website}', '{youtube}'].map(function (tk) { return h('button', { type: 'button', class: 'token', onclick: function () { insert(tk); } }, tk); }),
+            h('button', { type: 'button', class: 'btn text', style: 'height:36px; font-size:13px', onclick: editLinks }, 'Edit links'),
+            delBtn),
+          h('div', { class: 'small muted' }, 'Put a link on its own line. WhatsApp shows a preview card for it.')),
         h('div', { class: 'col gap10' }, previewLabel, h('div', { class: 'bubble-wrap' }, bubble)),
         h('div', { class: 'note amber' }, icon('info'), h('div', null, 'Messages open in WhatsApp one by one. You tap Send for each person, so your number stays safe.'))),
       h('div', { class: 'footer' }, startBtn));
@@ -799,6 +819,9 @@
 
   function startCampaign() {
     var cp = S.compose;
+    var lk = db.links || {};
+    if (/\{website\}/i.test(cp.text) && !lk.website && !window.confirm('Your website link is empty, so it will be left out. Continue?')) return;
+    if (/\{youtube\}/i.test(cp.text) && !lk.youtube && !window.confirm('Your YouTube link is empty, so it will be left out. Continue?')) return;
     if (campaignPending() > 0 && !window.confirm('You have an unfinished sending list. Replace it with this new one?')) return;
     var items = [];
     cp.ids.forEach(function (id) {
