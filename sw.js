@@ -1,6 +1,6 @@
 /* ENJC Messenger service worker: offline app shell.
    Bump VERSION whenever you change any app file so phones pick up the update. */
-const VERSION = 'enjc-msg-v3';
+const VERSION = 'enjc-msg-v4';
 const SHELL = [
   './',
   './index.html',
