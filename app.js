@@ -23,12 +23,15 @@
         if (r && Array.isArray(r.contacts)) {
           r.templates = Array.isArray(r.templates) && r.templates.length ? r.templates : DEFAULT_TEMPLATES.slice();
           if (typeof r.autoMark !== 'boolean') r.autoMark = true;
+          if (typeof r.autoOpen !== 'boolean') r.autoOpen = false;
+          if (typeof r.autoOk !== 'boolean') r.autoOk = false;
+          if (!(r.autoSecs >= 3)) r.autoSecs = 8;
           if (!r.campaign) r.campaign = null;
           return r;
         }
       }
     } catch (e) { /* private mode or bad JSON: start fresh */ }
-    return { contacts: [], templates: DEFAULT_TEMPLATES.slice(), campaign: null, autoMark: true };
+    return { contacts: [], templates: DEFAULT_TEMPLATES.slice(), campaign: null, autoMark: true, autoOpen: false, autoOk: false, autoSecs: 8 };
   }
 
   var saveWarned = false;
@@ -336,8 +339,59 @@
   }
 
   function go(view) {
+    if (view !== 'sending') { S.autoRunning = false; stopAuto(); }
     S.view = view;
     render();
+  }
+
+  /* ---------- auto-open next chat (PC only, opt-in, needs a successful test first) ---------- */
+  var autoTimer = null;
+  function stopAuto() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } }
+
+  function armAuto() {
+    stopAuto();
+    if (IS_MOBILE || S.view !== 'sending' || !S.autoRunning || !db.autoOpen || !db.autoOk || !db.autoMark || !currentItem()) return;
+    var left = db.autoSecs;
+    function paint() {
+      var el = document.getElementById('autocd');
+      if (el) el.textContent = 'Next chat opens in ' + left + 's. Press Send in WhatsApp now.';
+    }
+    paint();
+    autoTimer = setInterval(function () {
+      if (S.view !== 'sending' || !S.autoRunning || !currentItem()) { stopAuto(); return; }
+      left--;
+      if (left <= 0) {
+        stopAuto();
+        var a = document.querySelector('a.btn.big');
+        if (a) a.click(); // runs the same handler as a real tap
+        return;
+      }
+      paint();
+    }, 1000);
+  }
+
+  /* Test: a page without a tap can only open WhatsApp if the browser allows it. We open the
+     bare whatsapp:// address and watch whether this window loses focus to WhatsApp. */
+  function testAuto() {
+    toast('Testing. Do not click anything for 4 seconds.');
+    var got = false;
+    function onBlur() { got = true; }
+    window.addEventListener('blur', onBlur);
+    setTimeout(function () {
+      var a = document.createElement('a');
+      a.href = 'whatsapp://';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () {
+        window.removeEventListener('blur', onBlur);
+        db.autoOk = got;
+        if (got) db.autoOpen = true;
+        save();
+        toast(got ? 'Auto-open works on this PC.' : 'Browser blocked it. If Chrome asked, tick "Always allow" and test again.');
+        render();
+      }, 2500);
+    }, 1500);
   }
 
   /* ---------- router ---------- */
@@ -847,6 +901,7 @@
       var webLink = 'https://web.whatsapp.com/send?phone=' + cur.phone + '&text=' + txt;
       var onOpen = function () {
         S.opened = { id: cur.id, hidden: false };
+        if (!IS_MOBILE && db.autoOpen && db.autoOk && db.autoMark) S.autoRunning = true;
         if (!IS_MOBILE && db.autoMark) {
           /* On a PC the browser stays in view, so there is no "coming back" to detect:
              mark as sent as soon as WhatsApp is opened. */
@@ -902,10 +957,38 @@
     var auto = h('input', { type: 'checkbox', checked: db.autoMark, id: 'auto' });
     auto.addEventListener('change', function () { db.autoMark = auto.checked; save(); });
 
+    /* PC only: optional auto-open of the next chat */
+    var autoBox = null;
+    if (!IS_MOBILE) {
+      if (!db.autoOk) {
+        autoBox = h('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:12px' },
+          h('div', { class: 'small muted' }, 'Want the next chat to open by itself?'),
+          h('button', { type: 'button', class: 'btn ghost small', onclick: testAuto }, 'Test auto-open'));
+      } else {
+        var ao = h('input', { type: 'checkbox', checked: db.autoOpen, id: 'autoopen' });
+        ao.addEventListener('change', function () { db.autoOpen = ao.checked; if (!ao.checked) { S.autoRunning = false; stopAuto(); } save(); render(); });
+        var secs = h('select', { 'aria-label': 'Seconds before next chat', style: 'height:36px; border-radius:10px; border:1px solid var(--line-strong); background:var(--card); font-size:14px; padding:0 6px' },
+          [5, 8, 12, 20, 30].map(function (n) { return h('option', { value: String(n) }, n + ' s'); }));
+        secs.value = String(db.autoSecs);
+        secs.addEventListener('change', function () { db.autoSecs = +secs.value; save(); });
+        autoBox = h('div', { class: 'col gap6' },
+          h('div', { style: 'display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--muted)' },
+            h('label', { for: 'autoopen', style: 'display:flex; align-items:center; gap:10px' }, ao, 'Auto-open next chat after'), secs),
+          db.autoOpen && !db.autoMark ? h('div', { class: 'small', style: 'color:var(--red-ink)' }, 'Turn on "Mark as sent when I tap Open" for auto-open to work.') : null,
+          db.autoOpen && S.autoRunning
+            ? h('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:12px' },
+                h('div', { id: 'autocd', class: 'small', style: 'color:var(--green); font-weight:600' }, ''),
+                h('button', { type: 'button', class: 'btn ghost small', onclick: function () { S.autoRunning = false; stopAuto(); render(); } }, 'Stop auto'))
+            : (db.autoOpen ? h('div', { class: 'small muted' }, 'Tap Open once to start. Keep this window and WhatsApp side by side.') : null));
+      }
+    }
+    if (cur) setTimeout(armAuto, 0);
+
     return h('div', { class: 'view' }, head, card,
       h('div', { class: 'label', style: 'padding:16px 20px 8px' }, 'Queue ', h('span', { style: 'text-transform:none; letter-spacing:0; font-weight:500' }, '(tap a done row to undo)')),
       queue,
       h('div', { class: 'footer', style: 'padding-top:10px' },
+        autoBox,
         h('label', { for: 'auto', style: 'display:flex; align-items:center; gap:10px; font-size:13px; line-height:18px; color:var(--muted)' }, auto, IS_MOBILE ? 'Mark as sent when I come back from WhatsApp' : 'Mark as sent when I tap Open'),
         h('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:12px' },
           h('div', { class: 'small muted' }, 'Progress is saved. Close anytime and continue later.'),
