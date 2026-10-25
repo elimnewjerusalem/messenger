@@ -1,0 +1,8 @@
+# Copy this file to .dev.vars for local testing (never commit .dev.vars)
+SESSION_SECRET=change-me-to-a-long-random-text-0123456789
+VERIFY_TOKEN=any-word-you-choose
+# Leave the next lines out to stay in DEMO mode (nothing is really sent)
+# META_TOKEN=
+# PHONE_NUMBER_ID=
+# WABA_ID=
+# APP_SECRET=

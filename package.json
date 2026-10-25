@@ -1,0 +1,16 @@
+{
+  "name": "enjc-messenger",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ENJC Messenger v2: church WhatsApp broadcasts, birthdays, replies on Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev --local --test-scheduled",
+    "db:local": "wrangler d1 execute enjc-messenger --local --file=schema.sql",
+    "db:remote": "wrangler d1 execute enjc-messenger --remote --file=schema.sql",
+    "deploy": "wrangler deploy",
+    "backup": "wrangler d1 export enjc-messenger --remote --output=backup.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}
